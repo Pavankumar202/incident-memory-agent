@@ -49,13 +49,17 @@ def render_plan(plan: dict, key: str):
                 st.write(f"- {m}")
 
         st.markdown("**Did this work? Teach the agent:**")
+        root = st.text_input("Confirmed root cause (optional)", key=f"{key}-root")
+        mins = st.number_input("Minutes to resolve (optional)", min_value=0, value=0, key=f"{key}-mins")
         c1, c2, c3 = st.columns(3)
         fix = "; ".join(plan["recommended_steps"][:3])
         svc = st.session_state.alert["service"]
+        alert_text = st.session_state.alert["alert"]
         inc_id = f"LIVE-{int(time.time())}"
         for col, label, outcome in ((c1, "✅ Worked", "worked"), (c2, "❌ Failed", "failed"), (c3, "➖ Partial", "partial")):
             if col.button(label, key=f"{key}-{outcome}"):
-                retain_outcome(inc_id, svc, fix, outcome)
+                retain_outcome(inc_id, svc, fix, outcome,
+                               alert=alert_text, root_cause=root, minutes=int(mins) or None)
                 st.success(f"Saved to Hindsight memory: {outcome}")
     else:
         st.caption("No memory used. This is the generic baseline.")

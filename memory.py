@@ -6,14 +6,16 @@ from hindsight_client import Hindsight
 
 load_dotenv()
 
-for var in ("HINDSIGHT_API_KEY", "HINDSIGHT_BASE_URL"):
-    if not os.environ.get(var):
-        raise SystemExit(f"Missing {var} in .env. Fill it in and save the file.")
 
 BANK_ID = os.environ.get("BANK_ID", "oncall-payments-team")
 
+def _require_config():
+    missing = [v for v in ("HINDSIGHT_API_KEY", "HINDSIGHT_BASE_URL") if not os.environ.get(v)]
+    if missing:
+        raise RuntimeError(f"Missing {', '.join(missing)} in .env. Fill them in and save the file.")
 
 def _call(method: str, **kwargs):
+    _require_config()
     """Run one Hindsight call in its own thread with a fresh client.
     This avoids event-loop clashes inside Streamlit and closes sessions cleanly."""
 
@@ -54,12 +56,17 @@ def retain_incident(inc: dict):
     print(f"[memory] retained {inc['id']}")
 
 
-def retain_outcome(incident_id: str, service: str, fix: str, outcome: str):
-    """Called when the engineer marks a recommended fix as worked / failed / partial."""
-    content = (
-        f"Feedback for {incident_id} on {service}: the recommended fix "
-        f"'{fix}' RESULT: {outcome.upper()}."
-    )
+def retain_outcome(incident_id: str, service: str, fix: str, outcome: str,
+                   alert: str = "", root_cause: str = "", minutes: int | None = None):
+    """Store the engineer's verdict with as much incident context as we have."""
+    content = f"Feedback for {incident_id} on {service}."
+    if alert:
+        content += f" Alert: {alert}."
+    content += f" Recommended fix: {fix}. RESULT: {outcome.upper()}."
+    if root_cause:
+        content += f" Confirmed root cause: {root_cause}."
+    if minutes:
+        content += f" Resolved in {minutes} minutes."
     _call(
         "retain_batch",
         bank_id=BANK_ID,

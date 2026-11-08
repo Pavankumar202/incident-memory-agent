@@ -1,0 +1,22 @@
+[
+    {
+        "service": "checkout-service",
+        "alert": "p99 latency above 5s, Redis connections at 100%"
+    },
+    {
+        "service": "search-service",
+        "alert": "Search latency above 8s, Redis connections maxed out"
+    },
+    {
+        "service": "payment-gateway",
+        "alert": "5xx errors above 10% right after deploy v2.18.0"
+    },
+    {
+        "service": "log-aggregator",
+        "alert": "Disk usage 96% on node logs-07"
+    },
+    {
+        "service": "notifications-service",
+        "alert": "Kafka consumer lag above 500k messages, emails delayed"
+    }
+]

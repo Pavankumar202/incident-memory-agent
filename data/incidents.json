@@ -1,0 +1,112 @@
+[
+    {
+        "id": "INC-001",
+        "service": "checkout-service",
+        "alert": "p99 latency above 5s, Redis connections at 100%",
+        "logs": "redis.exceptions.ConnectionError: Too many connections | pool exhausted, 10/10 in use",
+        "root_cause": "Redis connection pool size of 10 too low for peak traffic",
+        "fix_steps": "Raised REDIS_POOL_SIZE from 10 to 50 and rolled restart of checkout pods",
+        "outcome": "worked",
+        "minutes_to_resolve": 4
+    },
+    {
+        "id": "INC-002",
+        "service": "payment-gateway",
+        "alert": "5xx error rate above 15% right after deploy v2.14.0",
+        "logs": "upstream connect error or disconnect/reset before headers | NullPointerException at PaymentMapper.java:88",
+        "root_cause": "Release v2.14.0 introduced a null currency field bug",
+        "fix_steps": "Rolled back to v2.13.2 with kubectl rollout undo, then opened a hotfix ticket",
+        "outcome": "worked",
+        "minutes_to_resolve": 6
+    },
+    {
+        "id": "INC-003",
+        "service": "log-aggregator",
+        "alert": "Disk usage 98% on node logs-02, pods evicted",
+        "logs": "No space left on device | /var/log/app.log size 71GB",
+        "root_cause": "Debug logging left on after last incident and no log rotation",
+        "fix_steps": "Truncated oldest logs, set log level to INFO, enabled logrotate with 7-day retention",
+        "outcome": "worked",
+        "minutes_to_resolve": 12
+    },
+    {
+        "id": "INC-004",
+        "service": "checkout-service",
+        "alert": "Checkout timeouts, Redis connection errors during flash sale",
+        "logs": "redis.exceptions.ConnectionError: Too many connections | pool exhausted, 50/50 in use",
+        "root_cause": "Pool of 50 still too small during flash sale, plus leaked connections in the cart handler",
+        "fix_steps": "Raised pool to 120 and patched cart handler to release connections in a finally block",
+        "outcome": "worked",
+        "minutes_to_resolve": 18
+    },
+    {
+        "id": "INC-005",
+        "service": "orders-service",
+        "alert": "Order writes timing out, Postgres lock waits above 30s",
+        "logs": "ERROR: canceling statement due to lock timeout | blocked by pid 2291 UPDATE orders SET status",
+        "root_cause": "Long-running backfill query held row locks on the orders table",
+        "fix_steps": "Terminated pid 2291 with pg_terminate_backend, rescheduled backfill to off-peak in batches of 1000",
+        "outcome": "worked",
+        "minutes_to_resolve": 9
+    },
+    {
+        "id": "INC-006",
+        "service": "search-service",
+        "alert": "Search latency above 8s, Redis connections at 100%",
+        "logs": "redis.exceptions.ConnectionError: Too many connections | 10/10 in use | blocked on SCAN with pattern query:*",
+        "root_cause": "Unknown at the time, suspected pool size like checkout-service",
+        "fix_steps": "Raised REDIS_POOL_SIZE from 10 to 50 and restarted pods",
+        "outcome": "failed",
+        "minutes_to_resolve": 25
+    },
+    {
+        "id": "INC-007",
+        "service": "search-service",
+        "alert": "Search latency still above 8s after pool increase, Redis CPU at 95%",
+        "logs": "slowlog: SCAN 0 MATCH query:* COUNT 100000 took 4200ms | 600k keys with no TTL",
+        "root_cause": "Query cache keys had no TTL and a wildcard SCAN ran on every request, so pool size was never the problem",
+        "fix_steps": "Added 1h TTL to query cache keys, replaced SCAN with a keyed lookup, flushed stale keys",
+        "outcome": "worked",
+        "minutes_to_resolve": 35
+    },
+    {
+        "id": "INC-008",
+        "service": "payment-gateway",
+        "alert": "Payment failures spiking right after deploy v2.16.1",
+        "logs": "upstream connect error | 503 from fraud-check | config key FRAUD_API_URL missing",
+        "root_cause": "New release expected FRAUD_API_URL env var that was missing in production config",
+        "fix_steps": "Rolled back to v2.16.0, then added FRAUD_API_URL to the production config map before redeploy",
+        "outcome": "worked",
+        "minutes_to_resolve": 8
+    },
+    {
+        "id": "INC-009",
+        "service": "checkout-service",
+        "alert": "p99 latency above 6s, Redis connections maxed out",
+        "logs": "redis.exceptions.ConnectionError: Too many connections | pool exhausted, 120/120 in use",
+        "root_cause": "Connection leak returned in the new coupon handler",
+        "fix_steps": "Hot-patched coupon handler to close connections, restarted pods, left pool at 120",
+        "outcome": "partial",
+        "minutes_to_resolve": 22
+    },
+    {
+        "id": "INC-010",
+        "service": "log-aggregator",
+        "alert": "Disk usage 95% on node logs-05",
+        "logs": "No space left on device | /var/log/audit.log size 54GB",
+        "root_cause": "Audit log rotation job silently failing since a cron path change",
+        "fix_steps": "Fixed logrotate cron path, forced rotation, added a disk-usage alert at 80%",
+        "outcome": "worked",
+        "minutes_to_resolve": 10
+    },
+    {
+        "id": "INC-011",
+        "service": "auth-service",
+        "alert": "Login failures 100%, TLS handshake errors",
+        "logs": "x509: certificate has expired or is not yet valid | not after: 2026-10-14T00:00:00Z",
+        "root_cause": "Internal TLS certificate expired, auto-renewal job was disabled",
+        "fix_steps": "Issued a new cert, reloaded the auth pods, re-enabled cert-manager renewal",
+        "outcome": "worked",
+        "minutes_to_resolve": 15
+    }
+]

@@ -54,14 +54,34 @@ def render_plan(plan: dict, key: str):
                 st.write(f"- {m}")
 
         st.markdown("**Did this work? Teach the agent:**")
+        steps = plan.get("recommended_steps", [])
+        remediation_keywords = ("rollback", "roll back", "restart", "scale", "config change", "patch", "hotfix", "revert", "redeploy")
+        default_idx = 0
+        for idx, s in enumerate(steps):
+            if any(kw in s.lower() for kw in remediation_keywords):
+                default_idx = idx
+                break
+
+        selected_step = st.selectbox(
+            "Which step did you try?",
+            steps if steps else ["(no steps)"],
+            index=default_idx,
+            key=f"{key}-selected-step",
+        )
+
         c1, c2, c3 = st.columns(3)
-        fix = "; ".join(plan["recommended_steps"][:3])
         svc = st.session_state.alert["service"]
         inc_id = f"LIVE-{int(time.time())}"
         for col, label, outcome in ((c1, "✅ Worked", "worked"), (c2, "❌ Failed", "failed"), (c3, "➖ Partial", "partial")):
-            if col.button(label, key=f"{key}-{outcome}"):
-                retain_outcome(inc_id, svc, fix, outcome)
-                st.success(f"Saved to Hindsight memory: {outcome}")
+            if col.button(label, key=f"{key}-{outcome}") and steps:
+                retain_outcome(inc_id, svc, selected_step, outcome)
+                result_label = {"worked": "✅ worked", "failed": "❌ failed", "partial": "➖ partial"}[outcome]
+                st.session_state[f"{key}-feedback-msg"] = (
+                    f"Saved to Hindsight memory: '{selected_step}' marked {result_label} for {svc}."
+                )
+
+        if st.session_state.get(f"{key}-feedback-msg"):
+            st.success(st.session_state[f"{key}-feedback-msg"])
     else:
         st.caption("No memory used. This is the generic baseline.")
 

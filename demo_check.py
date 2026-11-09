@@ -83,7 +83,7 @@ def main():
     print_summary("2. payment-gateway (Memory ON)", res_2)
 
     has_rollback = any(
-        "rollback" in s.lower() or "roll back" in s.lower()
+        "rollback" in s.lower() or "roll back" in s.lower() or "rolling back" in s.lower()
         for s in res_2.get("recommended_steps", [])
     )
     print(f"\nRollback step in recommended_steps: {has_rollback}")

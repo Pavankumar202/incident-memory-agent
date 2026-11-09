@@ -96,16 +96,16 @@ Hindsight provides the persistent semantic memory layer that powers intelligent 
 
 ## 💡 The Showcase Scenario: Why Memory Matters
 
-Real comparison output captured for alert:
+Real comparison output captured for alert on a clean seeded bank (`practice-1`):
 > **Alert:** `checkout-service: p99 latency above 5s, Redis connections at 100%`
 
 | Metric / Field | ❌ Without Memory (Memory OFF) | ✅ With Hindsight Memory (Memory ON) |
 | :--- | :--- | :--- |
-| **Likely Root Cause** | `Hypothesis: Redis connection pool exhaustion causing high checkout latency` | `Hypothesis: Redis connection pool exhaustion (possible connection leak or insufficient pool size) causing p99 latency >5s` |
+| **Likely Root Cause** | `Hypothesis: Redis connection saturation is causing high latency` | `Hypothesis: a connection leak in the coupon or cart handler is causing Redis connection pool exhaustion, which drives p99 latency above 5 s.` |
 | **Confidence** | `low` | `medium` |
-| **Recommended Steps** | 1. Check current Redis pool usage and limits<br>2. Inspect Redis server health (CPU, memory, latency, slowlog)<br>3. Verify network latency<br>4. Review recent changes<br>5. **Consider increasing Redis connection pool size**<br>6. **Temporarily restart checkout-service**<br>7. Monitor p99 latency | 1. Check Redis metrics: current pool usage, max connections, churn rate<br>2. Inspect checkout-service logs for leak patterns in cart handler<br>3. Run profiling to detect leaked connections<br>4. Patch cart handler to ensure connections are released and redeploy<br>5. Scale Redis or add checkout pods |
-| **Warnings** | *(none)* | ⚠️ **Increasing Redis connection pool size and restarting pods (LIVE-1794167974) failed**<br>⚠️ **Increasing Redis connection pool size and restarting pods (LIVE-1794208175) failed**<br>⚠️ **Increasing REDIS_POOL_SIZE from 10 to 50 and restarting pods failed for INC-006 (search-service)**<br>⚠️ **Removed a recommended step because it repeats an action that failed before.** |
-| **Memories Used** | *(none cited)* | • `INC-001: low pool size (10) caused 100% usage and >5s latency; fixing by raising to 50 and restart succeeded`<br>• `INC-004: pool size 50 was insufficient during flash sale; raising to 120 and fixing cart-handler leak resolved issue`<br>• `INC-009: pool reached 120/120 limit, confirming exhaustion as a cause of latency`<br>• `LIVE-1794167974: attempted temporary increase to ≥50 and restart failed on checkout-service`<br>• `LIVE-1794208175: temporary pool increase and restart failed on checkout-service` |
+| **Recommended Steps** | 1. Check Redis connection metrics and pool usage<br>2. Inspect Redis server CPU, memory, and latency stats<br>3. Review checkout-service thread pool/queue lengths<br>4. Examine recent code or configuration changes<br>5. **Consider scaling Redis nodes or increasing connection pool limits** | 1. Check recent code changes to coupon/cart handlers for missing connection close statements<br>2. Enable/inspect Redis client metrics for connections remaining open too long<br>3. If leak is found, hot-patch handler to close connections in finally block (INC-009)<br>4. Monitor Redis connection usage after patching<br>5. If pool usage remains high, consider increasing REDIS_POOL_SIZE<br>6. **Perform a rolled restart of checkout pods to clear stale connections and re-measure latency** |
+| **Warnings** | *(none)* | ⚠️ **Caution: increasing REDIS_POOL_SIZE failed in search-service (INC-006); verify it applies to checkout-service before applying** |
+| **Memories Used** | *(none cited)* | • `INC-009: connection leak in coupon handler caused pool exhaustion and >6s latency; hot-patch and restart resolved it`<br>• `INC-004: Redis pool of 50 was insufficient and cart handler leaked connections; patched handler and increased pool size`<br>• `INC-001: Redis pool exhaustion at size 10; raising pool to 50 and rolling restart cleared the issue`<br>• `INC-006: increasing REDIS_POOL_SIZE from 10 to 50 failed to resolve Redis saturation in search-service` |
 
 ---
 
@@ -261,6 +261,14 @@ The copilot responds strictly with structured JSON conforming to the following s
   "no_history": false
 }
 ```
+
+---
+
+## ⚠️ Known Limitations
+
+- **Text-Matching Guard:** The code-level guard that detects and removes repeated failed actions relies on action and service keyword matching rather than full semantic graph parsing.
+- **Dependency on Engineer Feedback:** The agent's continuous learning is only as reliable as the feedback provided by engineers (marking fixes as `Worked`, `Failed`, or `Partial`).
+- **Incident Documentation Quality:** Memory recall quality depends heavily on how consistently and thoroughly past incident postmortems (symptoms, logs, root causes, and explicit outcomes) are recorded and structured.
 
 ---
 

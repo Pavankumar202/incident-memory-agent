@@ -1,3 +1,4 @@
+
 import json
 import time
 
@@ -7,8 +8,12 @@ from agent import respond_to_alert
 from memory import retain_outcome
 
 st.set_page_config(page_title="Incident Memory Agent", layout="wide")
+
 st.title("On-Call Incident Copilot")
-st.caption("An incident agent that remembers what worked, and what didn't, using Hindsight memory.")
+st.caption(
+    "An incident agent that remembers what worked, and what didn't, "
+    "using Hindsight memory."
+)
 
 with open("data/demo_alerts.json") as f:
     ALERTS = json.load(f)
@@ -17,64 +22,124 @@ labels = [f"{a['service']}: {a['alert']}" for a in ALERTS]
 choice = st.selectbox("Simulate an incoming alert", labels)
 alert = ALERTS[labels.index(choice)]
 
-mode = st.radio("Mode", ["Compare both", "Memory ON", "Memory OFF"], horizontal=True)
+mode = st.radio(
+    "Mode",
+    ["Compare both", "Memory ON", "Memory OFF"],
+    horizontal=True
+)
 
 if st.button("Analyze alert", type="primary"):
     st.session_state.alert = alert
+    st.session_state.inc_id = f"LIVE-{int(time.time())}"
     st.session_state.results = {}
+
     with st.spinner("Recalling past incidents and thinking..."):
         if mode in ("Compare both", "Memory OFF"):
-            st.session_state.results["off"] = respond_to_alert(alert["service"], alert["alert"], use_memory=False)
+            st.session_state.results["off"] = respond_to_alert(
+                alert["service"], alert["alert"], use_memory=False
+            )
+
         if mode in ("Compare both", "Memory ON"):
-            st.session_state.results["on"] = respond_to_alert(alert["service"], alert["alert"], use_memory=True)
+            st.session_state.results["on"] = respond_to_alert(
+                alert["service"], alert["alert"], use_memory=True
+            )
 
 
 def render_plan(plan: dict, key: str):
+
     if plan.get("no_history") and plan.get("used_memory"):
-        st.warning("No similar past incidents found. Using cautious generic steps.")
+        st.warning(
+            "No similar past incidents found. Using cautious generic steps."
+        )
+
     st.markdown(f"**Likely root cause:** {plan['likely_root_cause']}")
     st.markdown(f"**Confidence:** {plan['confidence']}")
+
     st.markdown("**Recommended steps**")
+
     for i, step in enumerate(plan["recommended_steps"], 1):
         st.markdown(f"{i}. {step}")
-    for w in plan.get("warnings", []):
-        st.error(f"⚠️ {w}")
+
+    for warning in plan.get("warnings", []):
+        st.error(f"⚠️ {warning}")
 
     if plan["used_memory"]:
+
         st.markdown("**🧠 Memories used**")
-        for m in plan.get("memories_used", []) or ["(none cited)"]:
-            st.info(m)
-        with st.expander(f"All {len(plan['recalled_memories'])} recalled memories"):
-            for m in plan["recalled_memories"]:
-                st.write(f"- {m}")
+
+        for memory in plan.get("memories_used", []) or ["(none cited)"]:
+            st.info(memory)
+
+        recalled = plan.get("recalled_memories", [])
+
+        with st.expander(f"All {len(recalled)} recalled memories"):
+            for memory in recalled:
+                st.write(f"- {memory}")
 
         st.markdown("**Did this work? Teach the agent:**")
-        root = st.text_input("Confirmed root cause (optional)", key=f"{key}-root")
-        mins = st.number_input("Minutes to resolve (optional)", min_value=0, value=0, key=f"{key}-mins")
+
+        root = st.text_input(
+            "Confirmed root cause (optional)",
+            key=f"{key}-root"
+        )
+
+        mins = st.number_input(
+            "Minutes to resolve (optional)",
+            min_value=0,
+            value=0,
+            key=f"{key}-mins"
+        )
+
         c1, c2, c3 = st.columns(3)
+
         fix = "; ".join(plan["recommended_steps"][:3])
         svc = st.session_state.alert["service"]
         alert_text = st.session_state.alert["alert"]
-        inc_id = f"LIVE-{int(time.time())}"
-        for col, label, outcome in ((c1, "✅ Worked", "worked"), (c2, "❌ Failed", "failed"), (c3, "➖ Partial", "partial")):
+        inc_id = st.session_state.inc_id
+
+        outcomes = (
+            (c1, "✅ Worked", "worked"),
+            (c2, "❌ Failed", "failed"),
+            (c3, "➖ Partial", "partial")
+        )
+
+        for col, label, outcome in outcomes:
             if col.button(label, key=f"{key}-{outcome}"):
-                retain_outcome(inc_id, svc, fix, outcome,
-                               alert=alert_text, root_cause=root, minutes=int(mins) or None)
-                st.success(f"Saved to Hindsight memory: {outcome}")
+
+                retain_outcome(
+                    inc_id,
+                    svc,
+                    fix,
+                    outcome,
+                    alert=alert_text,
+                    root_cause=root,
+                    minutes=int(mins) or None
+                )
+
+                st.success(
+                    f"Saved to Hindsight memory: {outcome}"
+                )
+
     else:
         st.caption("No memory used. This is the generic baseline.")
 
 
 results = st.session_state.get("results", {})
+
 if results:
+
     if "on" in results and "off" in results:
+
         left, right = st.columns(2)
+
         with left:
             st.subheader("Without memory")
             render_plan(results["off"], "off")
+
         with right:
             st.subheader("With Hindsight memory")
             render_plan(results["on"], "on")
+
     else:
         only = results.get("on") or results.get("off")
         render_plan(only, "single")

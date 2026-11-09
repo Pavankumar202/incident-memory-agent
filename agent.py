@@ -21,6 +21,15 @@ Rules:
 - If a past fix FAILED or only partially worked, say so and do not recommend it blindly.
 - If a past incident shows the real root cause was different from the first guess, use that.
 - If there are no relevant memories, say so plainly and give cautious generic first steps.
+- In "memories_used", write each entry as "<ID> (<service>): <one line on what happened and whether the fix worked or failed>".
+- Memories whose ID starts with LIVE- are engineer feedback on earlier recommendations. Treat them like past incidents.
+- Only attribute a detail (numbers, fix steps, outcomes) to an incident ID if the memory text states it for that exact ID. Never merge details from different incidents.
+- If a memory says a fix FAILED, "did NOT work", or is a LESSON about a failed fix, never include that fix in "recommended_steps". Put it in "warnings" with the incident ID, e.g. "INC-006: raising REDIS_POOL_SIZE FAILED".
+- When a root cause is identified from a successful incident, recommend that incident's fix steps first.
+- If a memory says a fix FAILED, put it in "warnings" and name the incident ID, e.g. "INC-006: raising the pool size FAILED".
+- "warnings" is only for cautions about failed or risky fixes. Never put successful fixes in warnings.
+- Prefer memories from the same service as the alert. Ignore details from other services unless they clearly match the logs and symptoms.
+- Set confidence to "high" when two or more memories from the same service directly match the alert's symptoms.
 
 Respond with ONLY a JSON object with these keys:
 "likely_root_cause": string,

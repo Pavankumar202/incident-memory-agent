@@ -52,14 +52,25 @@ def ensure_bank():
 def retain_incident(inc: dict):
     """Store a historical incident."""
 
+    outcome = inc["outcome"].lower()
+    if outcome == "failed":
+        verdict = (
+            f"This fix FAILED and did NOT resolve incident {inc['id']}. "
+            f"Do not repeat this fix."
+        )
+    elif outcome == "worked":
+        verdict = f"This fix WORKED and resolved incident {inc['id']}."
+    else:
+        verdict = f"This fix PARTIALLY worked for incident {inc['id']}."
+
     content = (
         f"Incident {inc['id']} on {inc['service']}. "
         f"Alert: {inc['alert']}. "
         f"Logs: {inc['logs']}. "
         f"Root cause: {inc['root_cause']}. "
-        f"Fix steps: {inc['fix_steps']}. "
-        f"RESULT: The fix {inc['outcome'].upper()} "
-        f"(resolved in {inc['minutes_to_resolve']} minutes)."
+        f"Fix attempted: {inc['fix_steps']}. "
+        f"{verdict} "
+        f"(Time spent: {inc['minutes_to_resolve']} minutes.)"
     )
 
     result = _call(
@@ -74,6 +85,28 @@ def retain_incident(inc: dict):
         ],
         retain_async=False,
     )
+
+    if outcome == "failed":
+        _call(
+            "retain_batch",
+            bank_id=BANK_ID,
+            items=[
+                {
+                    "content": (
+                        f"LESSON from {inc['id']} on {inc['service']}: "
+                        f"this fix did NOT work and must not be repeated. "
+                        f"Failed fix: {inc['fix_steps']}. "
+                        f"Symptom: {inc['alert']}."
+                    ),
+                    "context": "failed-fix-lesson",
+                    "metadata": {
+                        "incident_id": inc["id"],
+                        "outcome": "failed",
+                    },
+                }
+            ],
+            retain_async=False,
+        )
 
     print(f"[memory] retained {inc['id']}")
     return result
@@ -124,8 +157,8 @@ def retain_outcome(
 
 def recall_similar(
     alert_text: str,
-    max_tokens: int = 1024,
-    limit: int = 8,
+    max_tokens: int = 2048,
+    limit: int = 12,
 ) -> list[str]:
     """Retrieve relevant historical incident memories."""
 

@@ -28,7 +28,7 @@ During high-severity production incidents, on-call engineers are under immense p
 - **⚖️ Side-by-Side Comparison:** Directly compare the baseline generic LLM suggestions ("Memory OFF") against memory-augmented recommendations ("Memory ON") to see the exact value of historical context.
 - **⚠️ Negative Knowledge & Failure Warnings:** If a fix previously failed or only partially worked, the agent explicitly flags it so engineers don't waste MTTR repeating past mistakes.
 - **🔄 Interactive Continuous Learning:** On-call engineers can teach the agent directly from the Streamlit UI (marking fixes as `✅ Worked`, `❌ Failed`, or `➖ Partial`), automatically committing feedback to Hindsight memory.
-- **🛡️ Robust Error Handling:** Retry logic on LLM errors, graceful "no similar incidents found" messaging, and conflicting memory flagging.
+- **🛡️ Robust Error Handling:** Retry logic on LLM errors, graceful "no similar incidents found" messaging.
 
 ---
 
@@ -93,7 +93,7 @@ result = _call(
 
 ### 2. `recall_similar(alert_text)` — Retrieving Relevant Memories at Triage Time
 
-When a new alert fires, the agent calls `recall_similar` with the alert text as the query. Hindsight performs **semantic vector search** across the memory bank and returns the most relevant past incident chunks — not just keyword matches, but conceptually similar situations. These retrieved memories are injected into the LLM prompt as grounding context.
+When a new alert fires, the agent calls `recall_similar` with the alert text as the query. Hindsight performs **multi-strategy retrieval (semantic, keyword, graph and temporal)** across the memory bank and returns the most relevant past incident chunks — not just keyword matches, but conceptually similar situations. These retrieved memories are injected into the LLM prompt as grounding context.
 
 ```python
 # memory.py
@@ -129,7 +129,7 @@ _call(
 | `search-service`: Redis connections maxed, 8s latency | Suggests: increase Redis pool size | Recalls INC-006: pool increase **failed**; INC-007: real cause was wildcard SCAN without TTL |
 | Agent advice | Generic (increase `REDIS_POOL_SIZE`) | Specific: add TTL, replace SCAN, flush stale keys |
 | Warnings | None | ⚠️ "Pool increase was tried in INC-006 and FAILED" |
-| Confidence | Low | **High** |
+| Confidence | Medium | **High** |
 
 The **"Memories Used" panel** in the UI shows exactly which past incidents were recalled and cited. The **memory on/off toggle** makes the contrast viscerally obvious.
 

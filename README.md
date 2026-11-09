@@ -1,11 +1,11 @@
 # 🚨 Incident Memory Agent
 
-> **An AI-powered On-Call Incident Copilot that remembers what worked, warns against what failed, and continuously learns from engineer feedback.**
+> **An AI-powered On-Call Incident Copilot that remembers what worked, warns against what failed, and continuously learns from engineer feedback — powered by Hindsight semantic memory and Groq LLM inference.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Cloud-f55036.svg)](https://groq.com/)
-[![Hindsight](https://img.shields.io/badge/Memory-Hindsight-8A2BE2.svg)](https://github.com/)
+[![Hindsight](https://img.shields.io/badge/Memory-Hindsight-8A2BE2.svg)](https://hindsight.vectorize.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
@@ -15,7 +15,7 @@
 During high-severity production incidents, on-call engineers are under immense pressure to triage and resolve outages quickly. Traditional approaches suffer from two major flaws:
 
 1. **Tribal Knowledge Loss:** Past incident postmortems are buried across Jira tickets, Google Docs, or Slack threads. Engineers often repeat mistakes by applying fixes that previously failed.
-2. **Generic LLM Hallucinations:** Standard LLMs lack organizational context and provide generic, textbook troubleshooting advice that does not account for your specific service architecture or past incident history.
+2. **Generic LLM Hallucinations:** Standard LLMs lack organizational context and provide textbook troubleshooting advice that ignores your specific service architecture and incident history.
 
 **Incident Memory Agent** solves this by pairing **Groq's** high-speed inference with **Hindsight's** semantic memory layer. The agent recalls past incident resolutions, warns engineers if a proposed fix has failed before, provides actionable step-by-step remediation plans, and learns in real time from post-fix feedback.
 
@@ -25,10 +25,10 @@ During high-severity production incidents, on-call engineers are under immense p
 
 - **🧠 Semantic Incident Memory (Hindsight):** Retains historical incidents (alerts, logs, root causes, remediation steps, and resolution outcomes) in a persistent memory bank.
 - **⚡ Blazing-Fast LLM Inference (Groq):** Powered by `openai/gpt-oss-120b` via Groq for near-instant triage recommendations during critical outages.
-- **⚖️ Side-by-Side Comparison ("Memory ON" vs. "Memory OFF"):** Directly compare the baseline generic LLM suggestions against memory-augmented recommendations to see the exact value of historical context.
-- **⚠️ Negative Knowledge & Failure Warnings:** If a fix previously failed or only partially worked, the agent explicitly flags it with warnings so engineers do not waste precious MTTR repeating past mistakes.
-- **🔄 Interactive Continuous Learning:** On-call engineers can teach the agent directly from the Streamlit UI (marking fixes as `✅ Worked`, `❌ Failed`, or `➖ Partial`), automatically committing feedback to the memory bank.
-- **🛡️ Concurrency-Safe Architecture:** Uses thread-isolated client sessions (`ThreadPoolExecutor`) to eliminate event-loop conflicts inside Streamlit.
+- **⚖️ Side-by-Side Comparison:** Directly compare the baseline generic LLM suggestions ("Memory OFF") against memory-augmented recommendations ("Memory ON") to see the exact value of historical context.
+- **⚠️ Negative Knowledge & Failure Warnings:** If a fix previously failed or only partially worked, the agent explicitly flags it so engineers don't waste MTTR repeating past mistakes.
+- **🔄 Interactive Continuous Learning:** On-call engineers can teach the agent directly from the Streamlit UI (marking fixes as `✅ Worked`, `❌ Failed`, or `➖ Partial`), automatically committing feedback to Hindsight memory.
+- **🛡️ Robust Error Handling:** Retry logic on LLM errors, graceful "no similar incidents found" messaging, and conflicting memory flagging.
 
 ---
 
@@ -53,7 +53,7 @@ flowchart TD
         - Confidence Level"]
     end
 
-    subgraph MemoryLayer ["Memory Bank (memory.py)"]
+    subgraph MemoryLayer ["Memory Bank (memory.py via Hindsight)"]
         Hindsight[("Hindsight Memory Bank")]
         SeedData["Seed Corpus (data/incidents.json)"]
     end
@@ -61,30 +61,92 @@ flowchart TD
     Alert --> CompareToggle
     CompareToggle -->|Memory ON| Query
     CompareToggle -->|Memory OFF| GroqLLM
-    
-    Query <-->|Recall Similar Incidents| Hindsight
-    SeedData -->|seed.py| Hindsight
-    
+
+    Query <-->|recall_similar| Hindsight
+    SeedData -->|seed.py retain_incident| Hindsight
+
     Query --> GroqLLM
     GroqLLM --> PlanOutput
     PlanOutput --> UI
-    Feedback -->|Retain Live Outcome| Hindsight
+    Feedback -->|retain_outcome| Hindsight
 ```
 
 ---
 
-## 💡 The Showcase Scenario: Why Memory Matters
+## 🧠 How Hindsight Memory Is Used
+
+Hindsight is the **semantic long-term memory backbone** of this agent. It is integrated at three distinct points in the system:
+
+### 1. `retain_incident(incident)` — Storing Historical Knowledge
+
+Called by `seed.py` once during setup (and can be called any time new incidents occur). Each incident is serialized into a structured natural-language string containing the service name, alert text, error logs, confirmed root cause, fix steps, outcome (worked/failed/partial), and time to resolve. This is stored in a Hindsight **memory bank** (`oncall-payments-team`) with the context tag `"incident"` and the incident ID as metadata.
+
+```python
+# memory.py
+result = _call(
+    "retain_batch",
+    bank_id=BANK_ID,
+    items=[{"content": content, "context": "incident", "metadata": {"incident_id": inc["id"]}}],
+    retain_async=False,
+)
+```
+
+### 2. `recall_similar(alert_text)` — Retrieving Relevant Memories at Triage Time
+
+When a new alert fires, the agent calls `recall_similar` with the alert text as the query. Hindsight performs **semantic vector search** across the memory bank and returns the most relevant past incident chunks — not just keyword matches, but conceptually similar situations. These retrieved memories are injected into the LLM prompt as grounding context.
+
+```python
+# memory.py
+results = _call(
+    "recall",
+    bank_id=BANK_ID,
+    query=alert_text,
+    max_tokens=1024,
+    budget="mid",
+)
+```
+
+This is the core of the **Memory ON vs. Memory OFF** toggle: without it, the LLM reasons from parametric knowledge only (generic advice); with it, the LLM reasons from your team's actual incident history.
+
+### 3. `retain_outcome(incident_id, outcome)` — Continuous Learning from Feedback
+
+After an engineer tries the recommended fix, they click one of the feedback buttons in the UI (`✅ Worked`, `❌ Failed`, `➖ Partial`). This stores a **feedback memory** in Hindsight with the outcome, confirmed root cause, and resolution time. Future `recall_similar` calls will surface this feedback, so the agent learns to warn against previously failed fixes.
+
+```python
+# memory.py
+_call(
+    "retain_batch",
+    bank_id=BANK_ID,
+    items=[{"content": content, "context": "outcome-feedback", "metadata": {...}}],
+    retain_async=False,
+)
+```
+
+### Why This Matters: The Demo Story
+
+| Scenario | Memory OFF | Memory ON |
+|:---|:---|:---|
+| `search-service`: Redis connections maxed, 8s latency | Suggests: increase Redis pool size | Recalls INC-006: pool increase **failed**; INC-007: real cause was wildcard SCAN without TTL |
+| Agent advice | Generic (increase `REDIS_POOL_SIZE`) | Specific: add TTL, replace SCAN, flush stale keys |
+| Warnings | None | ⚠️ "Pool increase was tried in INC-006 and FAILED" |
+| Confidence | Low | **High** |
+
+The **"Memories Used" panel** in the UI shows exactly which past incidents were recalled and cited. The **memory on/off toggle** makes the contrast viscerally obvious.
+
+---
+
+## 💡 The Showcase Scenario
 
 Consider an alert for the `search-service`:
 
 > **Alert:** `Search latency above 8s, Redis connections maxed out`
 
-| Metric / Aspect | ❌ Without Memory (Memory OFF) | ✅ With Hindsight Memory (Memory ON) |
+| Metric | ❌ Without Memory | ✅ With Hindsight Memory |
 | :--- | :--- | :--- |
-| **Diagnosed Root Cause** | Suspects Redis connection pool exhaustion (generic assumption). | Identifies **unindexed wildcard `SCAN`** and missing cache TTL. |
-| **Recommended Action** | Increase `REDIS_POOL_SIZE` and restart pods. | Add 1h TTL to cache keys, replace `SCAN` with keyed lookup, flush stale keys. |
-| **Warnings & History** | None. | ⚠️ **Warns that increasing pool size was attempted in INC-006 and failed!** |
-| **Confidence** | Low / Medium (Generic guess). | **High** (Backed by INC-006 and INC-007). |
+| **Root Cause** | Redis connection pool exhaustion (generic guess) | Wildcard `SCAN` on 600k keys without TTL — pool size is a red herring |
+| **Fix** | Increase `REDIS_POOL_SIZE` and restart pods | Add 1h TTL, replace `SCAN` with keyed lookup, flush stale keys |
+| **Warnings** | None | ⚠️ Increasing pool size was tried in INC-006 and **FAILED** |
+| **Confidence** | Medium | **High** (backed by INC-006 & INC-007) |
 
 ---
 
@@ -93,16 +155,16 @@ Consider an alert for the `search-service`:
 ```text
 incident-memory-agent/
 ├── data/
-│   ├── demo_alerts.json     # Sample alerts used for UI simulation
-│   └── incidents.json       # Historical incident postmortem corpus for seeding
-├── agent.py                 # Core reasoning agent with Groq API integration
-├── app.py                   # Streamlit web application & feedback interface
-├── memory.py                # Hindsight client wrappers (retain, recall, outcome feedback)
-├── seed.py                  # CLI utility to seed historical incidents into Hindsight
-├── test_memory.py           # Quick verification script for Hindsight retain & recall
-├── requirements.txt         # Project dependencies
-├── .env.example             # Template for required environment variables
-└── README.md                # Project documentation
+│   ├── demo_alerts.json     # Sample alerts for the UI dropdown
+│   └── incidents.json       # 15 historical incident postmortems (seed corpus)
+├── agent.py                 # Core reasoning agent (Groq + memory recall + retry logic)
+├── app.py                   # Streamlit web app with feedback UI
+├── memory.py                # Hindsight wrappers: retain_incident, recall_similar, retain_outcome
+├── seed.py                  # CLI utility to seed all incidents into Hindsight
+├── test_memory.py           # Quick verification: retain 2 incidents, recall, confirm
+├── requirements.txt         # Python dependencies
+├── .env.example             # Template for environment variables
+└── README.md                # This file
 ```
 
 ---
@@ -111,25 +173,23 @@ incident-memory-agent/
 
 ### 1. Prerequisites
 
-- Python 3.10 or higher
-- A [Groq Cloud API Key](https://console.groq.com/)
-- A [Hindsight](https://github.com/) instance / API key
+- Python 3.10+
+- A [Groq Cloud API Key](https://console.groq.com/) (free tier works)
+- A [Hindsight Cloud](https://ui.hindsight.vectorize.io) account and API key
 
-### 2. Clone the Repository & Set Up Environment
+### 2. Clone & Set Up
 
 ```bash
-# Clone the repository
 git clone https://github.com/Pavankumar202/incident-memory-agent.git
 cd incident-memory-agent
 
-# Create and activate a virtual environment
-# On Windows (PowerShell):
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-
-# On macOS/Linux:
+# macOS/Linux
 python3 -m venv .venv
 source .venv/bin/activate
+
+# Windows
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
 ### 3. Install Dependencies
@@ -140,63 +200,54 @@ pip install -r requirements.txt
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file in the root directory by copying `.env.example`:
-
 ```bash
 cp .env.example .env
 ```
 
-Populate the `.env` file with your credentials:
+Edit `.env`:
 
 ```dotenv
 HINDSIGHT_API_KEY="your-hindsight-api-key"
-HINDSIGHT_BASE_URL="https://your-hindsight-instance.com"
+HINDSIGHT_BASE_URL="https://api.hindsight.vectorize.io"
 GROQ_API_KEY="your-groq-api-key"
-BANK_ID="oncall-payments-team" # Optional: defaults to 'oncall-payments-team'
+BANK_ID="oncall-payments-team"   # optional, this is the default
 ```
 
----
-
-## 🧪 Usage & Workflows
-
-### Step 1: Verify Memory Connection
-
-Run the standalone memory verification test to ensure your Hindsight connection is working:
+### 5. Verify Memory Connection
 
 ```bash
 python test_memory.py
 ```
 
-### Step 2: Seed Historical Incidents
+Expected: a retained incident echoed back in the recall output.
 
-Seed the initial incident corpus (`data/incidents.json`) into your Hindsight memory bank:
+### 6. Seed Historical Incidents
 
 ```bash
 python seed.py
 ```
-*Expected output:* `Seeded 11 incidents.`
 
-### Step 3: Run the CLI Baseline Comparison
+Expected output: `Seeded 15 incidents.`
 
-Test the agent in terminal mode to observe the contrast between `MEMORY OFF` and `MEMORY ON`:
+### 7. Run CLI Before/After Comparison
 
 ```bash
 python agent.py
 ```
 
-### Step 4: Launch the Streamlit Web UI
+Prints MEMORY OFF then MEMORY ON for the `search-service` alert, showing the contrast.
 
-Start the interactive web application:
+### 8. Launch the Streamlit UI
 
 ```bash
 streamlit run app.py
 ```
 
-Once running, navigate to `http://localhost:8501` in your browser. From the dashboard:
-1. **Select an alert** from the dropdown (e.g., `search-service: Search latency above 8s...`).
-2. Choose **"Compare both"** mode and click **"Analyze alert"**.
-3. Inspect the side-by-side comparison.
-4. Use the feedback buttons (`✅ Worked`, `❌ Failed`, `➖ Partial`) under the memory column to teach the agent in real time.
+Navigate to `http://localhost:8501`. From the dashboard:
+1. Select an alert from the dropdown.
+2. Choose **"Compare both"** and click **"Analyze alert"**.
+3. See the side-by-side comparison with the **Memories Used** panel.
+4. Click **✅ Worked / ❌ Failed / ➖ Partial** to teach the agent.
 
 ---
 
@@ -204,31 +255,30 @@ Once running, navigate to `http://localhost:8501` in your browser. From the dash
 
 | Variable | Required | Default | Description |
 | :--- | :---: | :---: | :--- |
-| `HINDSIGHT_API_KEY` | **Yes** | — | Authentication token for the Hindsight memory service. |
-| `HINDSIGHT_BASE_URL` | **Yes** | — | Base URL of the Hindsight API instance. |
-| `GROQ_API_KEY` | **Yes** | — | API key for Groq Cloud. |
-| `BANK_ID` | No | `oncall-payments-team` | Identifier for the Hindsight memory bank partition. |
+| `HINDSIGHT_API_KEY` | **Yes** | — | Authentication token for Hindsight |
+| `HINDSIGHT_BASE_URL` | **Yes** | — | Hindsight API base URL |
+| `GROQ_API_KEY` | **Yes** | — | Groq Cloud API key |
+| `BANK_ID` | No | `oncall-payments-team` | Hindsight memory bank partition ID |
 
 ---
 
 ## 🧩 Output Schema
-
-The copilot responds strictly with structured JSON conforming to the following schema:
 
 ```json
 {
   "likely_root_cause": "Wildcard Redis SCAN without TTL causing CPU saturation",
   "recommended_steps": [
     "Check slowlog to verify long-running SCAN queries",
-    "Add 1h TTL to cache keys",
-    "Replace wildcard SCAN with keyed lookups"
+    "Add 1h TTL to query cache keys",
+    "Replace wildcard SCAN with keyed lookups",
+    "Flush stale keys with redis-cli --scan"
   ],
   "memories_used": [
     "INC-006: search-service pool increase failed",
-    "INC-007: search-service unindexed query scan"
+    "INC-007: search-service unindexed query scan fixed with TTL"
   ],
   "warnings": [
-    "Do NOT simply increase REDIS_POOL_SIZE; this was attempted in INC-006 and failed."
+    "Do NOT simply increase REDIS_POOL_SIZE — tried in INC-006, FAILED."
   ],
   "confidence": "high",
   "no_history": false
@@ -239,12 +289,10 @@ The copilot responds strictly with structured JSON conforming to the following s
 
 ## 🤝 Contributing
 
-Contributions, bug reports, and suggestions are welcome!
 1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/new-capability`).
-3. Commit your changes (`git commit -m 'Add new capability'`).
-4. Push to the branch (`git push origin feature/new-capability`).
-5. Open a Pull Request.
+2. Create your feature branch: `git checkout -b feature/new-capability`
+3. Commit your changes: `git commit -m 'Add new capability'`
+4. Push and open a Pull Request.
 
 ---
 

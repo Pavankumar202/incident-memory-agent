@@ -18,5 +18,13 @@
     {
         "service": "notifications-service",
         "alert": "Kafka consumer lag above 500k messages, emails delayed"
+    },
+    {
+        "service": "auth-service",
+        "alert": "Login failures spiking 100%, TLS handshake errors in pods"
+    },
+    {
+        "service": "api-gateway",
+        "alert": "API gateway pods OOM-killed, memory usage at 95%"
     }
 ]

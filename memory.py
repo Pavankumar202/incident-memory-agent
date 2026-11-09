@@ -1,4 +1,4 @@
-import os
+﻿import os
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
@@ -54,12 +54,25 @@ def retain_incident(inc: dict):
     print(f"[memory] retained {inc['id']}")
 
 
-def retain_outcome(incident_id: str, service: str, fix: str, outcome: str):
+def retain_outcome(
+    incident_id: str,
+    service: str,
+    fix: str,
+    outcome: str,
+    alert: str = "",
+    root_cause: str = "",
+    minutes: int | None = None,
+):
     """Called when the engineer marks a recommended fix as worked / failed / partial."""
-    content = (
-        f"Feedback for {incident_id} on {service}: the recommended fix "
-        f"'{fix}' RESULT: {outcome.upper()}."
-    )
+    content = f"Feedback for {incident_id} on {service}: the recommended fix '{fix}' RESULT: {outcome.upper()}."
+
+    if alert:
+        content += f" Original alert: {alert}."
+    if root_cause:
+        content += f" Confirmed root cause: {root_cause}."
+    if minutes is not None:
+        content += f" Resolved in {minutes} minutes."
+
     _call(
         "retain_batch",
         bank_id=BANK_ID,

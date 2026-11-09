@@ -108,5 +108,45 @@
         "fix_steps": "Issued a new cert, reloaded the auth pods, re-enabled cert-manager renewal",
         "outcome": "worked",
         "minutes_to_resolve": 15
+    },
+    {
+        "id": "INC-012",
+        "service": "checkout-service",
+        "alert": "Redis connection errors spiking, p99 latency above 7s, Black Friday traffic",
+        "logs": "redis.exceptions.ConnectionError: Too many connections | pool exhausted, 120/120 in use | coupon handler goroutine leak",
+        "root_cause": "Coupon handler goroutine leak from INC-009 patch was not fully fixed; Black Friday traffic exposed the remaining leak",
+        "fix_steps": "Emergency pod restart, deployed permanent fix for coupon handler (context cancellation + defer close), set pool to 200",
+        "outcome": "worked",
+        "minutes_to_resolve": 20
+    },
+    {
+        "id": "INC-013",
+        "service": "api-gateway",
+        "alert": "Memory usage 95% on all API gateway pods, OOM kills starting",
+        "logs": "java.lang.OutOfMemoryError: GC overhead limit exceeded | heap dump: 94% retained by RequestContextHolder",
+        "root_cause": "ThreadLocal memory leak in RequestContextHolder; contexts not cleared after request completion",
+        "fix_steps": "Added finally{} block to clear RequestContextHolder after each request, deployed hotfix, increased heap to 2GB temporarily",
+        "outcome": "worked",
+        "minutes_to_resolve": 30
+    },
+    {
+        "id": "INC-014",
+        "service": "payment-gateway",
+        "alert": "Payment webhook retries exhausted, Stripe callbacks returning 503",
+        "logs": "HTTPError: 503 Service Unavailable from internal webhook handler | queue depth 50000 | consumer group payment-webhooks lag: 50000",
+        "root_cause": "Webhook handler had no rate-limiter; a Stripe retry storm overwhelmed the consumer group",
+        "fix_steps": "Deployed rate-limiter middleware (100 req/s), manually committed offsets to drain stale retries, scaled consumer group to 6 replicas",
+        "outcome": "worked",
+        "minutes_to_resolve": 40
+    },
+    {
+        "id": "INC-015",
+        "service": "search-service",
+        "alert": "Elasticsearch cluster yellow, shard allocation failed, search returning partial results",
+        "logs": "IndexShardRecoveryException: failed to recover shard | disk watermark exceeded | disk.watermark.low=85%",
+        "root_cause": "Elasticsearch disk watermark breached on two data nodes; shard allocation blocked and degraded to partial availability",
+        "fix_steps": "Deleted stale indices (.monitoring-* older than 30d), raised watermark threshold temporarily, force-rebalanced shards",
+        "outcome": "worked",
+        "minutes_to_resolve": 45
     }
 ]

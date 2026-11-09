@@ -17,7 +17,7 @@ During high-severity production incidents, on-call engineers are under immense p
 1. **Tribal Knowledge Loss:** Past incident postmortems are buried across Jira tickets, Google Docs, or Slack threads. Engineers often repeat mistakes by applying fixes that previously failed.
 2. **Generic LLM Hallucinations:** Standard LLMs lack organizational context and provide textbook troubleshooting advice that ignores your specific service architecture and incident history.
 
-**Incident Memory Agent** solves this by pairing **Groq's** high-speed inference with **Hindsight's** semantic memory layer. The agent recalls past incident resolutions, warns engineers if a proposed fix has failed before, provides actionable step-by-step remediation plans, and learns in real time from post-fix feedback.
+**Incident Memory Agent** solves this by pairing **Groq's** high-speed inference with **Hindsight's** semantic memory layer. The agent recalls past incident resolutions, warns engineers if a proposed fix has failed before, provides actionable step-by-step remediation plans, generates incident war room updates, and learns in real time from post-fix feedback.
 
 ---
 
@@ -27,8 +27,12 @@ During high-severity production incidents, on-call engineers are under immense p
 - **⚡ Blazing-Fast LLM Inference (Groq):** Powered by `openai/gpt-oss-120b` via Groq for near-instant triage recommendations during critical outages.
 - **⚖️ Side-by-Side Comparison:** Directly compare the baseline generic LLM suggestions ("Memory OFF") against memory-augmented recommendations ("Memory ON") to see the exact value of historical context.
 - **⚠️ Negative Knowledge & Failure Warnings:** If a fix previously failed or only partially worked, the agent explicitly flags it so engineers don't waste MTTR repeating past mistakes.
+- **🔴 Triage Priority & Benchmark MTTR:** Real-time priority classification (`🔴 P1 - CRITICAL`, `🟡 P2 - HIGH`, `🔵 P3 - MEDIUM`) and historical resolution duration estimates grounded in past incident benchmarks.
 - **🔄 Interactive Continuous Learning:** On-call engineers can teach the agent directly from the Streamlit UI (marking fixes as `✅ Worked`, `❌ Failed`, or `➖ Partial`), automatically committing feedback to Hindsight memory.
-- **🛡️ Robust Error Handling:** Retry logic on LLM errors, graceful "no similar incidents found" messaging.
+- **📋 War Room & Slack Export:** One-click formatted snippet ready to paste into emergency Slack/Teams war room channels.
+- **📥 Auto-Generated Postmortem Brief:** One-click download of a structured Markdown postmortem report (`.md`) closing the loop on incident documentation.
+- **✍️ Custom Alert Testing Sandbox:** Lets evaluators and engineers test any custom service and alert message beyond the presets.
+- **📚 In-App Knowledge Base Explorer:** Interactive directory of 15 seeded postmortems with outcome filters and keyword search.
 
 ---
 
@@ -37,9 +41,12 @@ During high-severity production incidents, on-call engineers are under immense p
 ```mermaid
 flowchart TD
     subgraph UI ["Streamlit Frontend (app.py)"]
-        Alert["Incoming / Simulated Alert"]
+        Alert["Incoming / Custom Alert"]
+        QuickDemo["1-Click Showcase Demo"]
         CompareToggle{"Mode: Memory ON vs OFF"}
         Feedback["Feedback Actions (Worked / Failed / Partial)"]
+        SlackExport["Copy for Slack War Room"]
+        Postmortem["Download Postmortem Brief (.md)"]
     end
 
     subgraph Core ["Incident Copilot Agent (agent.py)"]
@@ -58,6 +65,7 @@ flowchart TD
         SeedData["Seed Corpus (data/incidents.json)"]
     end
 
+    QuickDemo --> Query
     Alert --> CompareToggle
     CompareToggle -->|Memory ON| Query
     CompareToggle -->|Memory OFF| GroqLLM
@@ -69,6 +77,8 @@ flowchart TD
     GroqLLM --> PlanOutput
     PlanOutput --> UI
     Feedback -->|retain_outcome| Hindsight
+    PlanOutput --> SlackExport
+    PlanOutput --> Postmortem
 ```
 
 ---
@@ -79,7 +89,7 @@ Hindsight is the **semantic long-term memory backbone** of this agent. It is int
 
 ### 1. `retain_incident(incident)` — Storing Historical Knowledge
 
-Called by `seed.py` once during setup (and can be called any time new incidents occur). Each incident is serialized into a structured natural-language string containing the service name, alert text, error logs, confirmed root cause, fix steps, outcome (worked/failed/partial), and time to resolve. This is stored in a Hindsight **memory bank** (`oncall-payments-team`) with the context tag `"incident"` and the incident ID as metadata.
+Called by `seed.py` once during setup (and can be called any time new incidents occur). Each incident is serialized into a structured natural-language string containing the service name, alert text, error logs, confirmed root cause, fix steps, outcome (worked/failed/partial), and time to resolve. This is stored in a Hindsight **memory bank** (`oncall-demo-final` / `oncall-payments-team`) with the context tag `"incident"` and the incident ID as metadata.
 
 ```python
 # memory.py
@@ -122,31 +132,18 @@ _call(
 )
 ```
 
-### Why This Matters: The Demo Story
-
-| Scenario | Memory OFF | Memory ON |
-|:---|:---|:---|
-| `search-service`: Redis connections maxed, 8s latency | Suggests: increase Redis pool size | Recalls INC-006: pool increase **failed**; INC-007: real cause was wildcard SCAN without TTL |
-| Agent advice | Generic (increase `REDIS_POOL_SIZE`) | Specific: add TTL, replace SCAN, flush stale keys |
-| Warnings | None | ⚠️ "Pool increase was tried in INC-006 and FAILED" |
-| Confidence | Medium | **High** |
-
-The **"Memories Used" panel** in the UI shows exactly which past incidents were recalled and cited. The **memory on/off toggle** makes the contrast viscerally obvious.
-
 ---
 
-## 💡 The Showcase Scenario
+### Why This Matters: The Showcase Demo Story
 
-Consider an alert for the `search-service`:
-
-> **Alert:** `Search latency above 8s, Redis connections maxed out`
-
-| Metric | ❌ Without Memory | ✅ With Hindsight Memory |
-| :--- | :--- | :--- |
-| **Root Cause** | Redis connection pool exhaustion (generic guess) | Wildcard `SCAN` on 600k keys without TTL — pool size is a red herring |
-| **Fix** | Increase `REDIS_POOL_SIZE` and restart pods | Add 1h TTL, replace `SCAN` with keyed lookup, flush stale keys |
-| **Warnings** | None | ⚠️ Increasing pool size was tried in INC-006 and **FAILED** |
-| **Confidence** | Medium | **High** (backed by INC-006 & INC-007) |
+| Metric / Field | ❌ Without Memory (Baseline) | ✅ With Hindsight Memory (Copilot) |
+|:---|:---|:---|
+| **Priority & MTTR** | `🔴 P1 - CRITICAL` • MTTR Unknown | `🔴 P1 - CRITICAL` • Benchmark: ~35m (INC-007) |
+| **Root Cause** | Redis pool exhaustion (generic textbook guess) | Wildcard `SCAN` on 600k keys without TTL |
+| **Fix Steps** | Increase `REDIS_POOL_SIZE` and restart pods | Add 1h TTL, replace `SCAN` with keyed lookup, flush stale keys |
+| **Warnings** | *(none)* | ⚠️ **INC-006: increasing REDIS_POOL_SIZE from 10 to 50 FAILED** |
+| **Confidence** | Low | **High** (backed by INC-006 & INC-007) |
+| **Actionable Outcome** | Repeats failed fix, doubles MTTR | Applies verified fix, avoids repeat mistake |
 
 ---
 
@@ -155,16 +152,17 @@ Consider an alert for the `search-service`:
 ```text
 incident-memory-agent/
 ├── data/
-│   ├── demo_alerts.json     # Sample alerts for the UI dropdown
+│   ├── demo_alerts.json     # 7 production alerts across 7 microservices
 │   └── incidents.json       # 15 historical incident postmortems (seed corpus)
-├── agent.py                 # Core reasoning agent (Groq + memory recall + retry logic)
-├── app.py                   # Streamlit web app with feedback UI
-├── memory.py                # Hindsight wrappers: retain_incident, recall_similar, retain_outcome
-├── seed.py                  # CLI utility to seed all incidents into Hindsight
+├── agent.py                 # Core reasoning agent (Groq + Hindsight recall + failure guard)
+├── app.py                   # Streamlit web app with comparison, feedback & export UI
+├── memory.py                # Hindsight SDK wrappers: retain_incident, recall_similar, retain_outcome
+├── seed.py                  # CLI utility to seed 15 incidents into Hindsight memory bank
 ├── test_memory.py           # Quick verification: retain 2 incidents, recall, confirm
+├── DEMO_SCRIPT.md           # 2-minute timed video recording & presentation walkthrough
 ├── requirements.txt         # Python dependencies
 ├── .env.example             # Template for environment variables
-└── README.md                # This file
+└── README.md                # Project documentation
 ```
 
 ---
@@ -210,7 +208,7 @@ Edit `.env`:
 HINDSIGHT_API_KEY="your-hindsight-api-key"
 HINDSIGHT_BASE_URL="https://api.hindsight.vectorize.io"
 GROQ_API_KEY="your-groq-api-key"
-BANK_ID="oncall-payments-team"   # optional, this is the default
+BANK_ID="oncall-demo-final"   # optional memory bank partition ID
 ```
 
 ### 5. Verify Memory Connection
@@ -227,27 +225,30 @@ Expected: a retained incident echoed back in the recall output.
 python seed.py
 ```
 
-Expected output: `Seeded 15 incidents.`
+Expected output: `✅ Seeded 15 incidents.`
 
-### 7. Run CLI Before/After Comparison
+### 7. Run CLI Comparison
 
 ```bash
 python agent.py
 ```
 
-Prints MEMORY OFF then MEMORY ON for the `search-service` alert, showing the contrast.
+Prints `MEMORY OFF` then `MEMORY ON` for the `search-service` alert, demonstrating the contrast in the terminal.
 
-### 8. Launch the Streamlit UI
+### 8. Launch the Streamlit Web Dashboard
 
 ```bash
 streamlit run app.py
 ```
 
 Navigate to `http://localhost:8501`. From the dashboard:
-1. Select an alert from the dropdown.
-2. Choose **"Compare both"** and click **"Analyze alert"**.
-3. See the side-by-side comparison with the **Memories Used** panel.
-4. Click **✅ Worked / ❌ Failed / ➖ Partial** to teach the agent.
+1. **1-Click Showcase Demo:** Click **"🚀 1-Click Showcase Demo (Search Service)"** at the top right to instantly load the before/after comparison.
+2. **Preset & Custom Alerts:** Select any preset or choose **"✍️ Custom alert (type your own)..."** to test your own outage scenario.
+3. **Inspect Priority & MTTR:** Review the calculated triage priority (`P1/P2/P3`) and historical benchmark resolution times.
+4. **Copy for Slack:** Expand the **"📋 Copy for Slack / Incident War Room"** card for a ready-to-paste incident update.
+5. **Download Postmortem:** Click **"📥 Download Postmortem Brief (.md)"** to save a complete postmortem markdown document.
+6. **Continuous Learning:** Click **✅ Worked / ❌ Failed / ➖ Partial** to teach the agent in real time.
+7. **Browse Knowledge Base:** Expand **"📚 Browse 15 Seeded Incident Postmortems"** at the bottom to filter and search past postmortems.
 
 ---
 
@@ -278,7 +279,7 @@ Navigate to `http://localhost:8501`. From the dashboard:
     "INC-007: search-service unindexed query scan fixed with TTL"
   ],
   "warnings": [
-    "Do NOT simply increase REDIS_POOL_SIZE — tried in INC-006, FAILED."
+    "INC-006: increasing REDIS_POOL_SIZE from 10 to 50 FAILED"
   ],
   "confidence": "high",
   "no_history": false

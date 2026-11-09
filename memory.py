@@ -68,7 +68,7 @@ def retain_outcome(incident_id: str, service: str, fix: str, outcome: str):
     )
 
 
-def recall_similar(alert_text: str, max_tokens: int = 1024, limit: int = 8) -> list[str]:
+def recall_similar(alert_text: str, max_tokens: int = 1024, limit: int = 25) -> list[str]:
     """Return the most relevant memories, deduplicated and capped."""
     results = _call(
         "recall",

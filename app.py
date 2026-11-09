@@ -4,11 +4,12 @@ import time
 import streamlit as st
 
 from agent import respond_to_alert
-from memory import retain_outcome
+from memory import BANK_ID, retain_outcome
 
 st.set_page_config(page_title="Incident Memory Agent", layout="wide")
 st.title("On-Call Incident Copilot")
 st.caption("An incident agent that remembers what worked, and what didn't, using Hindsight memory.")
+st.sidebar.markdown(f"**Hindsight Bank ID:** `{BANK_ID}`")
 
 with open("data/demo_alerts.json") as f:
     ALERTS = json.load(f)
@@ -42,8 +43,12 @@ def render_plan(plan: dict, key: str):
 
     if plan["used_memory"]:
         st.markdown("**🧠 Memories used**")
-        for m in plan.get("memories_used", []) or ["(none cited)"]:
-            st.info(m)
+        memories = plan.get("memories_used", [])
+        if memories:
+            for m in memories:
+                st.info(str(m))
+        else:
+            st.info("(none cited)")
         with st.expander(f"All {len(plan['recalled_memories'])} recalled memories"):
             for m in plan["recalled_memories"]:
                 st.write(f"- {m}")

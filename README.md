@@ -5,8 +5,10 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/UI-Streamlit-FF4B4B.svg)](https://streamlit.io/)
 [![Groq](https://img.shields.io/badge/LLM-Groq%20Cloud-f55036.svg)](https://groq.com/)
-[![Hindsight](https://img.shields.io/badge/Memory-Hindsight-8A2BE2.svg)](https://github.com/)
+[![Hindsight](https://img.shields.io/badge/Memory-Hindsight-8A2BE2.svg)](https://hindsight.vectorize.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+Development was coordinated with Band AI desktop ([band.ai](https://band.ai)).
 
 ---
 
@@ -73,18 +75,37 @@ flowchart TD
 
 ---
 
+## 🧠 How Hindsight Memory is Used
+
+Hindsight provides the persistent semantic memory layer that powers intelligent triage and continuous learning across the incident lifecycle:
+
+1. **Retain at Seed Time (Historical Incident Corpus):**
+   - Historical postmortems in `data/incidents.json` (11 incidents) are ingested into the Hindsight memory bank via `seed.py`.
+   - Each memory preserves the service name, incoming alert, log traces, verified root cause, fix steps taken, and resolution outcome (`worked`, `failed`, or `partial`) along with resolution duration.
+2. **Retain After Each Engineer Click (Live Feedback Loop):**
+   - When an engineer evaluates a triage plan in the Streamlit UI, they can mark whether the fix `✅ Worked`, `❌ Failed`, or had a `➖ Partial` outcome.
+   - `retain_outcome` stores this feedback directly into Hindsight under the `outcome-feedback` context (e.g. `LIVE-...` records), updating the knowledge base immediately without retraining.
+3. **Recall Before Each Triage:**
+   - When a new alert arrives, `recall_similar` queries Hindsight with the service and alert text to retrieve the most relevant historical incidents and engineer outcome records.
+   - The agent receives this context to form evidence-backed hypotheses.
+4. **Memory ON vs. Memory OFF Comparison:**
+   - **Memory OFF (Generic Baseline):** The LLM provides generic textbook troubleshooting, often recommending intuitive actions (like blindly increasing connection pools or restarting pods) that have already failed in your environment.
+   - **Memory ON:** The agent checks past outcomes, words root causes as hypotheses requiring diagnostic verification, cites specific past incident and feedback IDs (`INC-xxx` / `LIVE-xxx`), and issues explicit warnings against repeating failed actions.
+
+---
+
 ## 💡 The Showcase Scenario: Why Memory Matters
 
-Consider an alert for the `search-service`:
+Real comparison output captured for alert:
+> **Alert:** `checkout-service: p99 latency above 5s, Redis connections at 100%`
 
-> **Alert:** `Search latency above 8s, Redis connections maxed out`
-
-| Metric / Aspect | ❌ Without Memory (Memory OFF) | ✅ With Hindsight Memory (Memory ON) |
+| Metric / Field | ❌ Without Memory (Memory OFF) | ✅ With Hindsight Memory (Memory ON) |
 | :--- | :--- | :--- |
-| **Diagnosed Root Cause** | Suspects Redis connection pool exhaustion (generic assumption). | Identifies **unindexed wildcard `SCAN`** and missing cache TTL. |
-| **Recommended Action** | Increase `REDIS_POOL_SIZE` and restart pods. | Add 1h TTL to cache keys, replace `SCAN` with keyed lookup, flush stale keys. |
-| **Warnings & History** | None. | ⚠️ **Warns that increasing pool size was attempted in INC-006 and failed!** |
-| **Confidence** | Low / Medium (Generic guess). | **High** (Backed by INC-006 and INC-007). |
+| **Likely Root Cause** | `Hypothesis: Redis connection pool exhaustion causing high checkout latency` | `Hypothesis: Redis connection pool exhaustion (possible connection leak or insufficient pool size) causing p99 latency >5s` |
+| **Confidence** | `low` | `medium` |
+| **Recommended Steps** | 1. Check current Redis pool usage and limits<br>2. Inspect Redis server health (CPU, memory, latency, slowlog)<br>3. Verify network latency<br>4. Review recent changes<br>5. **Consider increasing Redis connection pool size**<br>6. **Temporarily restart checkout-service**<br>7. Monitor p99 latency | 1. Check Redis metrics: current pool usage, max connections, churn rate<br>2. Inspect checkout-service logs for leak patterns in cart handler<br>3. Run profiling to detect leaked connections<br>4. Patch cart handler to ensure connections are released and redeploy<br>5. Scale Redis or add checkout pods |
+| **Warnings** | *(none)* | ⚠️ **Increasing Redis connection pool size and restarting pods (LIVE-1794167974) failed**<br>⚠️ **Increasing Redis connection pool size and restarting pods (LIVE-1794208175) failed**<br>⚠️ **Increasing REDIS_POOL_SIZE from 10 to 50 and restarting pods failed for INC-006 (search-service)**<br>⚠️ **Removed a recommended step because it repeats an action that failed before.** |
+| **Memories Used** | *(none cited)* | • `INC-001: low pool size (10) caused 100% usage and >5s latency; fixing by raising to 50 and restart succeeded`<br>• `INC-004: pool size 50 was insufficient during flash sale; raising to 120 and fixing cart-handler leak resolved issue`<br>• `INC-009: pool reached 120/120 limit, confirming exhaustion as a cause of latency`<br>• `LIVE-1794167974: attempted temporary increase to ≥50 and restart failed on checkout-service`<br>• `LIVE-1794208175: temporary pool increase and restart failed on checkout-service` |
 
 ---
 
@@ -113,7 +134,7 @@ incident-memory-agent/
 
 - Python 3.10 or higher
 - A [Groq Cloud API Key](https://console.groq.com/)
-- A [Hindsight](https://github.com/) instance / API key
+- A [Hindsight](https://hindsight.vectorize.io) instance / API key (managed via [Hindsight Cloud](https://ui.hindsight.vectorize.io))
 
 ### 2. Clone the Repository & Set Up Environment
 
@@ -197,6 +218,12 @@ Once running, navigate to `http://localhost:8501` in your browser. From the dash
 2. Choose **"Compare both"** mode and click **"Analyze alert"**.
 3. Inspect the side-by-side comparison.
 4. Use the feedback buttons (`✅ Worked`, `❌ Failed`, `➖ Partial`) under the memory column to teach the agent in real time.
+
+### Step 5: Resetting for a Clean Demo
+
+Each live-feedback click is retained into the bank, so before recording, set a new `BANK_ID` in `.env` (e.g. `oncall-demo-final`), run `python seed.py`, then launch the app.
+
+> **Note:** change BANK_ID and re-seed before each full recording to ensure clean initial states.
 
 ---
 

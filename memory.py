@@ -93,10 +93,14 @@ def retain_incident(inc: dict):
             items=[
                 {
                     "content": (
-                        f"LESSON from {inc['id']} on {inc['service']}: "
-                        f"this fix did NOT work and must not be repeated. "
+                        f"LESSON from {inc['id']} on {inc['service']} ONLY: "
+                        f"this fix did NOT work for the {inc['service']} service "
+                        f"and must not be repeated there. "
                         f"Failed fix: {inc['fix_steps']}. "
-                        f"Symptom: {inc['alert']}."
+                        f"Symptom: {inc['alert']}. "
+                        f"Actual cause: {inc['root_cause']}. "
+                        f"This lesson applies ONLY to {inc['service']} "
+                        f"and says nothing about other services."
                     ),
                     "context": "failed-fix-lesson",
                     "metadata": {

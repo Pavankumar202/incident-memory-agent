@@ -30,6 +30,9 @@ Rules:
 - "warnings" is only for cautions about failed or risky fixes. Never put successful fixes in warnings.
 - Prefer memories from the same service as the alert. Ignore details from other services unless they clearly match the logs and symptoms.
 - Set confidence to "high" when two or more memories from the same service directly match the alert's symptoms.
+- A LESSON or failed fix applies ONLY to the service named in it. Ignore it entirely when the alert is for a different service, and never put it in "warnings" for a different service.
+- Never recommend a step that you also list as a failed fix in "warnings". "warnings" and "recommended_steps" must not contradict each other.
+- If successful incidents for the SAME service as the alert show a fix worked, recommend that fix.
 
 Respond with ONLY a JSON object with these keys:
 "likely_root_cause": string,
